@@ -1,22 +1,38 @@
 # encoding: gbk
+import datetime
+
+try:
+    from jingniflow import jingni_handle_data, jingni_main
+except ImportError:
+    # µ¥ÎÄ¼şÄ£Ê½£º°Ñ dist/jingniflow_single_gbk.py Õ³Ìùµ½±¾ÎÄ¼şÄ©Î²¡£
+    pass
+
+trade_mode = "qmt"
+
+
+def my_strategy(trade_mode, context_data):
+    """ÔÚÕâÀïĞ´ĞÅºÅ¡¢ÏÂµ¥ºÍ³·µ¥Âß¼­¡£"""
+    # Ê¾Àı£ºÏÈ¶ÁĞĞÇé£¬ÔÙµ÷ÓÃ jingni_order_amount(..., dry_run=True)¡£
+    pass
 
 
 def init(ContextInfo):
-    # è®¾å®šæ¯å¤©10:00æ‰§è¡Œæ–°è‚¡ç”³è´­å‡½æ•°(å…³é—­è¯¥åŠŸèƒ½è¯·åœ¨ä¸‹ä¸€è¡Œä»£ç ContextInfo.schedule_runå‰åŠ #)
-    ContextInfo.schedule_run(jingni_subscribe_new_stock, datetime.datetime.now().strftime('%Y%m%d') + '100000', 1, datetime.timedelta(days=1), 'jingni_subscribe_new_stock')
-    # è®¾å®šæ¯å¤©10:10æ‰§è¡Œæ–°å€ºç”³è´­å‡½æ•°(å…³é—­è¯¥åŠŸèƒ½è¯·åœ¨ä¸‹ä¸€è¡Œä»£ç ContextInfo.schedule_runå‰åŠ #)
-    ContextInfo.schedule_run(jingni_subscribe_new_bond, datetime.datetime.now().strftime('%Y%m%d') + '101000', 1, datetime.timedelta(days=1), 'jingni_subscribe_new_bond')
-    # è®¾å®šæ¯å¤©14:50æ‰§è¡Œå›½å€ºé€†å›è´­å‡½æ•°(å…³é—­è¯¥åŠŸèƒ½è¯·åœ¨ä¸‹ä¸€è¡Œä»£ç ContextInfo.schedule_runå‰åŠ #)
-    ContextInfo.schedule_run(jingni_participate_reverse_repo, datetime.datetime.now().strftime('%Y%m%d') + '145000', 1, datetime.timedelta(days=1), 'jingni_participate_reverse_repo')
-    pass
+    jingni_main(trade_mode, ContextInfo, strategy=my_strategy)
+    # ĞèÒª¶¨Ê±ÈÎÎñÊ±ÔÙ´ò¿ª£»repeat_times=0 ±íÊ¾°´ÈÕ¹æÔò³ÖĞø´¥·¢¡£
+    # ContextInfo.schedule_run(
+    #     jingni_subscribe_new_stock,
+    #     datetime.datetime.now().strftime("%Y%m%d") + "100000",
+    #     0,
+    #     datetime.timedelta(days=1),
+    #     "jingni_subscribe_new_stock",
+    # )
+
 
 def handlebar(ContextInfo):
-    # æ–°å»ºç©ºç­–ç•¥åå¤åˆ¶è¿™ä¸€è¡Œç¤ºä¾‹ä»£ç åˆ°ç©ºç­–ç•¥é‡Œ
-    jingni_trade_strategy(trade_mode, ContextInfo)
-    pass
+    jingni_handle_data(trade_mode, ContextInfo)
 
 
 ###################################
-# ä»¥ä¸‹ä¸ºJingniFlowé‡åŒ–äº¤æ˜“ç³»ç»Ÿä»£ç #
-# å°†jingniflow.pyçš„ä»£ç å¤åˆ¶åˆ°å°¾éƒ¨#
+# ÒÔÏÂÎªJingniFlowÁ¿»¯½»Ò×ÏµÍ³´úÂë#
+# ½« dist/jingniflow_single_gbk.py µÄ´úÂë¸´ÖÆµ½Î²²¿#
 ###################################

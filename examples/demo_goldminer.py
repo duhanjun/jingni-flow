@@ -1,61 +1,52 @@
 # coding=utf-8
 from __future__ import print_function, absolute_import
+
 from gm.api import *
 
+try:
+    from jingniflow import jingni_handle_data, jingni_main
+except ImportError:
+    # 单文件模式：把 dist/jingniflow_single.py 粘贴到本文件末尾。
+    pass
 
-# 策略中必须有init方法
+trade_mode = "goldminer"
+
+
+def my_strategy(trade_mode, context_data):
+    # TODO: 在这里读行情、算信号、调用 jingni_order_amount(..., dry_run=True)。
+    pass
+
+
 def init(context):
-    # 新建空策略后复制这一行示例代码到空策略里（频率支持tick, 60s, 300s, 900s, 1800s, 3600s, 1d）
-    subscribe(symbols='SHSE.600000', frequency='1d') 
-    # 设定每天10:00执行新股申购函数(关闭该功能请在下一行代码schedule前加#)
-    schedule(schedule_func=jingni_subscribe_new_stock, date_rule='1d', time_rule='10:00:00')
-    # 设定每天10:10执行新债申购函数(关闭该功能请在下一行代码schedule前加#)
-    schedule(schedule_func=jingni_subscribe_new_bond, date_rule='1d', time_rule='10:10:00')
-    # 设定每天14:50执行国债逆回购函数(关闭该功能请在下一行代码schedule前加#)
-    schedule(schedule_func=jingni_participate_reverse_repo, date_rule='1d', time_rule='14:50:00')
-    pass
+    subscribe(symbols="SHSE.600000", frequency="1d")
+    jingni_main(trade_mode, context, strategy=my_strategy)
+    # 打新/新债/逆回购示例：默认 dry_run，只打印不委托；确认后去掉 dry_run=False。
+    # jingni_subscribe_new_stock(context)
+    # jingni_subscribe_new_bond(context)
+    # jingni_participate_reverse_repo(context, cash_ratio=0.5)
 
-# 新建空策略后复制这两行示例代码到空策略里
-def on_tick(context,tick):
-    # 新建空策略后复制这一行示例代码到空策略里
-    jingni_trade_strategy(trade_mode, context)
-    pass
 
-# 新建空策略后复制这两行示例代码到空策略里
 def on_bar(context, bars):
-    # 新建空策略后复制这一行示例代码到空策略里
-    jingni_trade_strategy(trade_mode, context)
-    pass
+    jingni_handle_data(trade_mode, context)
 
-# 新建空策略后复制strategy_id和token的值分别替换示例代码里10个x和10个y
-if __name__ == '__main__':
-    '''
-    strategy_id策略ID, 由系统生成
-    filename文件名, 请与本文件名保持一致
-    mode运行模式, 实时模式:MODE_LIVE回测模式:MODE_BACKTEST
-    token绑定计算机的ID, 可在系统设置-密钥管理中生成
-    backtest_start_time回测开始时间
-    backtest_end_time回测结束时间
-    backtest_adjust股票复权方式, 不复权:ADJUST_NONE前复权:ADJUST_PREV后复权:ADJUST_POST
-    backtest_initial_cash回测初始资金
-    backtest_commission_ratio回测佣金比例
-    backtest_slippage_ratio回测滑点比例
-    backtest_match_mode市价撮合模式，以下一tick/bar开盘价撮合:0，以当前tick/bar收盘价撮合：1
-    '''
-    run(strategy_id='xxxxxxxxxx',
-        filename='main.py',
+
+if __name__ == "__main__":
+    run(
+        strategy_id="xxxxxxxxxx",
+        filename="main.py",
         mode=MODE_BACKTEST,
-        token='yyyyyyyyyy',
-        backtest_start_time='2025-09-01 08:00:00',
-        backtest_end_time='2025-09-01 16:00:00',
+        token="yyyyyyyyyy",
+        backtest_start_time="2025-09-01 08:00:00",
+        backtest_end_time="2025-09-01 16:00:00",
         backtest_adjust=ADJUST_PREV,
         backtest_initial_cash=10000000,
         backtest_commission_ratio=0.0001,
         backtest_slippage_ratio=0.0001,
-        backtest_match_mode=1)
+        backtest_match_mode=1,
+    )
 
 
 ###################################
 # 以下为JingniFlow量化交易系统代码#
-# 将jingniflow.py的代码复制到尾部#
+# 将 dist/jingniflow_single.py 的代码复制到尾部#
 ###################################
