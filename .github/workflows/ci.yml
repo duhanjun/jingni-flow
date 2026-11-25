@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install pandas numpy
+
+      - name: Unit and contract tests
+        run: python -m pytest -q
+
+      - name: Static check
+        run: python -m pyflakes jingniflow tools tests
+
+      - name: Core coverage gate
+        run: |
+          python -m coverage run -m pytest -q
+          python -m coverage report
+
+      - name: Check committed root drift
+        run: python tools/build_single.py --check --root --allow-missing
+
+      - name: Build single-file artifacts
+        run: python tools/build_single.py --root
+
+      - name: Verify build artifacts
+        run: python tools/build_single.py --check --root
+
+      - name: Build paste-ready smoke files
+        run: python tools/build_smoke.py
+
+      - name: Verify paste-ready smoke files
+        run: python tools/build_smoke.py --check
+
+      - name: Build paste-ready validation files
+        run: python tools/build_validation.py
+
+      - name: Verify paste-ready validation files
+        run: python tools/build_validation.py --check
+
+      - name: Verify release constraints
+        run: python tools/verify_release.py
+
+  legacy-py36-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build single-file artifacts
+        run: python3 tools/build_single.py --root
+
+      - name: Build paste-ready smoke files
+        run: python3 tools/build_smoke.py
+
+      - name: Build paste-ready validation files
+        run: python3 tools/build_validation.py
+
+      - name: Python 3.6 compile and GBK decode
+        run: |
+          docker run --rm -i -v "$PWD":/repo -w /repo python:3.6.15-slim python - <<'PY'
+          import ast
+          import io
+
+          for path, encoding in (
+              ("dist/jingniflow_single.py", "utf-8"),
+              ("dist/jingniflow_single_gbk.py", "gbk"),
+              ("dist/smoke/qmt_smoke_full.py", "gbk"),
+              ("dist/validation/qmt_validation_full.py", "gbk"),
+          ):
+              text = io.open(path, encoding=encoding).read()
+              compile(text, path, "exec")
+              ast.parse(text)
+              print("OK", path)
+
+          ptrade = io.open("dist/smoke/ptrade_smoke_full.py", encoding="utf-8").read()
+          compile(ptrade, "ptrade_smoke_full.py", "exec")
+          assert "import sys" not in ptrade
+          assert "sys." not in ptrade
+          print("OK PTrade syntax/no-sys under Python 3.6")
+
+          ptrade_validation = io.open(
+              "dist/validation/ptrade_validation_full.py", encoding="utf-8"
+          ).read()
+          compile(ptrade_validation, "ptrade_validation_full.py", "exec")
+          assert "import sys" not in ptrade_validation
+          assert "sys." not in ptrade_validation
+          print("OK PTrade validation syntax/no-sys under Python 3.6")
+          PY
+
+  release-artifacts:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [quality, legacy-py36-static]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install pandas numpy
+
+      - name: Build release artifacts
+        run: |
+          python tools/build_single.py --root
+          python tools/build_smoke.py
+          python tools/build_validation.py
+          python tools/build_single.py --check --root
+          python tools/build_smoke.py --check
+          python tools/build_validation.py --check
+          python tools/verify_release.py
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: jingniflow-${{ github.ref_name }}
+          if-no-files-found: error
+          path: |
+            dist/jingniflow_single.py
+            dist/jingniflow_single_gbk.py
+            dist/build-manifest.json
+            dist/smoke/goldminer_smoke_full.py
+            dist/smoke/qmt_smoke_full.py
+            dist/smoke/ptrade_smoke_full.py
+            dist/validation/goldminer_validation_full.py
+            dist/validation/qmt_validation_full.py
+            dist/validation/ptrade_validation_full.py
+            dist/validation/README.md
+            jingniflow.py
