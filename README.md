@@ -16,14 +16,95 @@
 
 **关于本项目的学习和实践请访问在线课程目录**：https://mp.weixin.qq.com/mp/appmsgalbum?__biz=MjM5MTU2NDA3OQ==&action=getalbum&album_id=4151851070626693141#wechat_redirect
 
+# 快速开始
+
+- 完全不知道怎么选路径：先看 `docs/getting-started.md`。
+- 单文件 / 包导入 / 模板三种方式对比：`docs/usage-modes.md`。
+- 第一个可运行的策略（含 `strategy=` 绑定）：`docs/first-strategy.md`。
+- dry-run、限额、kill switch、模拟到实盘：`docs/config-and-risk.md`。
+- 文档总索引：`docs/README.md`。
+- 仿真账户三端可粘贴验证策略：`dist/validation/README.md`。
+
+# v0.2.0 Phase 0 / Phase 1 / Phase 2 迁移说明
+
+- 代码已从单文件 `jingniflow.py` 迁移为 `jingniflow/` 包；旧函数名全部保留，旧参数可用，`legacy=True` 可恢复旧字段偏移/旧返回形态（已知错误行为不回退）。
+- `jingni_main` 不再执行 `while True` 主循环，只做初始化并立即返回；盘中逻辑由 `jingni_handle_data` 执行，由平台事件（掘金 `on_bar`、QMT `handlebar`、PTrade `handle_data`）驱动。新增策略注册入口：`jingni_main(trade_mode, context_data, strategy=my_strategy)`、`jingni_handle_data(..., strategy=...)` 或 `jingni_set_strategy(my_strategy)`；未注册时仍调用旧的 `jingni_trade_strategy` 占位实现。
+- 默认 `RuntimeConfig` 已按 D7 开启安全口径：`dry_run=True`、单笔数量/金额、每日笔数、重复下单窗口均默认生效。实盘前显式传 `RuntimeConfig(dry_run=False)`，并按账户规模调整限额。
+- **Phase 1 订单闭环**：`jingni_order_amount` / `jingni_order_value` 默认返回统一 `OrderRef`，并新增目标持仓、市价单、撤单、全撤、平仓、订单/成交查询、统一账户/持仓、风控 API。旧策略可继续使用旧签名；需要旧返回值时传 `legacy=True`。
+- **QMT 差分引擎**：`jingni_order_target_amount` 会扣除当前持仓与在途委托，部分成交/拒单场景可重复调用收敛；QMT 目标单走 `passorder`。
+- **风控**：所有新增下单入口先过 `core/risk.check_order`；`jingni_kill_switch` 会撤掉未完成委托并阻止后续下单；`dry_run=True` 只检查、不消耗每日笔数。
+- **Phase 2 交易周边**：新增范围行情 `jingni_get_history_range`、历史数据预热 `jingni_download_history`、标的元数据 `jingni_get_instrument` / `jingni_get_stock_status`、交易日历 `jingni_get_trading_dates` / `jingni_is_trading_day`、交易时段 `jingni_is_trading_time`、秒级定时器 `jingni_run_interval`。范围行情统一返回 DataFrame；日历返回 `YYYYMMDD` 列表；标的元数据返回以规范代码为键的 dict。
+- QMT 兼容内置 Python 3.6 + GBK：`dist/jingniflow_single_gbk.py` 可直接粘贴到策略末尾；包模式请把仓库根目录加入 QMT 的 Python 路径。PTrade 实测 Python 3.5.1，单文件顶层不得出现 `sys`。
+- 生成单文件：`python tools/build_single.py`；同时刷新根目录旧文件用 `python tools/build_single.py --root`。
+- 构建治理：`python tools/build_single.py --check --root` 校验版本、源码 SHA256、构建时间、产物 SHA256 和 `dist/build-manifest.json`；`python tools/build_smoke.py --check` 校验三端 full 冒烟文件；`python tools/verify_release.py` 校验 QMT GBK/Python 3.6、PTrade 禁 sys/Python 3.5 约束和三端 `trade_mode`。详细设计见 `docs/build-governance-ci.md`。
+- CI：`.github/workflows/ci.yml` 跑 pytest、pyflakes、核心覆盖率门禁、单文件/冒烟构建校验和 release verifier，并用 Python 3.6 容器做 QMT 单文件的语法与 GBK 解码检查；打 `v*` tag 时额外产出 release bundle。
+- 测试：`python -m pytest`（当前 78 个单元/契约测试）。
+- 诊断：`jingni_doctor()` 做启动自检；`jingni_capabilities()` 返回 Phase 1/2 能力矩阵，含 `full/degraded/unsupported` 平台级别。
+- 覆盖率门禁：`python -m coverage run -m pytest` + `python -m coverage report`，约束 `core/` 核心契约层 ≥80%；当前 86%，全包约 69%。
+
+# Phase 1 新增函数（股票现货交易闭环）
+
+| 类别 | 函数 | 说明 |
+|---|---|---|
+| 策略入口 | `jingni_set_strategy` / `jingni_get_strategy` | 注册/读取默认策略函数；`jingni_main(..., strategy=...)` 和 `jingni_handle_data(..., strategy=...)` 可显式绑定 |
+| 下单 | `jingni_order_amount` / `jingni_order_value` | 数量/金额下单，默认 `OrderRef`，支持 `dry_run`、`legacy` |
+| 目标持仓 | `jingni_order_target_amount` / `jingni_order_target_value` | 当前持仓 + 在途委托差额引擎；QMT 用 `passorder` |
+| 市价 | `jingni_order_market` | 市价/保护价；QMT 沪市用 `prType=42` |
+| 撤单 | `jingni_cancel_order` / `jingni_cancel_all` / `jingni_close_all` | 单笔撤、全撤、按可用持仓平仓 |
+| 查询 | `jingni_get_orders` / `jingni_get_trades` | 统一订单/成交字段，状态映射为 7 个枚举 |
+| 账户 | `jingni_get_account` / `jingni_get_positions` | 统一 `total_asset/cash/available/market_value/frozen/pnl` 与持仓可卖量 |
+| 风控 | `jingni_set_risk` / `jingni_check_order` / `jingni_calc_max_buy` / `jingni_calc_max_sell` / `jingni_kill_switch` / `jingni_log` | 限额、整手、可卖量、重复窗口、kill switch |
+| 行情/日历/调度 | `jingni_history` / `jingni_tick` / `jingni_now` / `jingni_wall_now` / `jingni_offset_trade_date` / `jingni_schedule` | 统一 DataFrame/tick、策略时钟、平台定时任务 |
+| 业务 | `jingni_subscribe_new_stock` / `jingni_subscribe_new_bond` / `jingni_participate_reverse_repo` | 打新/新债/逆回购，默认 `dry_run` |
+
+QMT 目标单差额引擎、PTrade `get_orders/get_trades`、QMT 撤单签名等仍需按 `docs/JingniFlow-代码评估与功能扩展规划方案.md` 的 V-01—V-12 在三家终端实机核对；未核对前按“降级/待实测”标注。
+
+# Phase 2 新增函数（交易周边数据、日历与调度）
+
+| 类别 | 函数 | 说明 |
+|---|---|---|
+| 范围行情 | `jingni_get_history_range(trade_mode, context_data, security_code, frequency, start_time, end_time, fields=None, adjust='pre')` | 按起止时间取历史行情，统一 DataFrame；`start_time` 必填 |
+| 数据预热 | `jingni_download_history(trade_mode, context_data, security_codes, frequency, start_time, end_time)` | QMT 逐只 `download_history_data`；GM/PTrade 无操作 |
+| 标的元数据 | `jingni_get_instrument(trade_mode, context_data, security_codes, fields=None)` | 返回规范代码为键的 `name/board/lot_size/tick_size/limit_up/limit_down/listed_date/status` |
+| 股票状态 | `jingni_get_stock_status(trade_mode, context_data, security_codes, query_type='ST', date=None)` | PTrade 原生；GM/QMT 由标的详情降级推导，未知返回 `None` |
+| 交易日历 | `jingni_get_trading_dates(trade_mode, context_data, start_date=None, end_date=None, market='SH')` | 返回 `YYYYMMDD` 列表；GM `get_trading_dates_by_year`、QMT `get_trading_dates`、PTrade `get_trade_days` |
+| 交易日判断 | `jingni_is_trading_day(trade_mode=None, context_data=None, date=None)` | 由交易日历推导；平台日历不可用时按工作日降级 |
+| 交易时段 | `jingni_is_trading_time(trade_mode=None, context_data=None, now=None, include_auction=False)` | 默认连续竞价 09:30—11:30、13:00—15:00；可含开盘集合竞价 |
+| 秒级定时器 | `jingni_run_interval(func, seconds=3, trade_mode=None, context_data=None)` | GM `timer`（毫秒）、QMT `ContextInfo.run_time`（回测无效）、PTrade `run_interval`（最小 3 秒） |
+
+Phase 2 的平台差异与待实测项见 `docs/Phase2-实施记录.md`；三端回测冒烟已完成（掘金 23/0/1、QMT 21/0/3、PTrade 22/0/2），真实报单/柜台/定时器验证见 `docs/live-validation-checklist.md`。能力矩阵/自检与异常契约的加固记录见 `docs/QA-加固记录.md`。
+
+# 三端实机冒烟
+
+三份可粘贴脚本在 `examples/smoke/`，覆盖三端回测的启动、行情/日历、dry-run、
+查询和调度检查（实际项数以脚本 `[SMOKE][SUMMARY]` 为准）：
+
+| 平台 | 粘贴文件 | 追加单文件 |
+|---|---|---|
+| 掘金 | `examples/smoke/goldminer_smoke.py` | `dist/jingniflow_single.py` |
+| QMT | `examples/smoke/qmt_smoke.py` | `dist/jingniflow_single_gbk.py` |
+| PTrade | `examples/smoke/ptrade_smoke.py` | `dist/jingniflow_single.py` |
+
+默认 `SMOKE_REAL_ORDER=False`，只做 dry-run；真实报单/撤单需要显式打开。完整步骤、日志对照和常见失败见 `docs/smoke-copy-paste.md`；模拟/实盘逐项真机验证见 `docs/live-validation-checklist.md`。
+
+# 诊断与自检
+
+| 函数 | 说明 |
+|---|---|
+| `jingni_version()` | 打印并返回版本、Python、当前平台 |
+| `jingni_capabilities(trade_mode=None)` | 返回能力矩阵；每个能力含 `phase/level/notes/platform_levels` |
+| `jingni_doctor(trade_mode=None, context_data=None, config=None, verbose=True)` | 静态检查 Python/平台/适配器/`dry_run`/风控限额/Phase 2 能力，不主动调用柜台接口 |
+
+`jingni_doctor()` 只做启动自检，不替代实机冒烟；`ok=False` 表示存在必须处理的错误，`warnings` 包含实盘开关、kill switch、QMT 账号未配置等提示。
+
 # 项目框架
 
 JingniFlow的核心设计目标是简化跨平台策略开发。通过抽象层将各券商量化交易软件的接口封装成统一函数，使策略只需调用JingniFlow的统一接口，而无需为每个量化交易软件重写适配策略代码。
 
 |**功能模块**|**函数名称**|**使用说明**|
 |-------|-------|-------|
-|系统控制|main|实现系统的自动启动、运行和终止|
-|事件驱动|before_trading_start/handle_data/after_trading_end|盘前盘中盘后的事件驱动运行框架|
+|系统控制|main|初始化运行时并立即返回，由平台事件驱动|
+|事件驱动|before_trading_start/handle_data/after_trading_end|盘前盘中盘后事件函数；`handle_data` 单次执行|
 |交易日期|trading_dates|获取指定日期前后的交易日期|
 |交易时间|trading_times|获取指定日期的交易时间|
 |账户信息|portfolio|查询账户资产、市值、资金和持仓明细|
@@ -32,8 +113,8 @@ JingniFlow的核心设计目标是简化跨平台策略开发。通过抽象层�
 |历史行情|get_history|获取股票的历史K线数据，支持多种时间周期|
 |单日数据|get_field|提取指定股票在特定交易日的某个字段值|
 |多日数据|get_field_n|提取指定股票在多个交易日的字段值序列|
-|数量交易|order_amount|按指定的数量执行股票的买入或卖出操作|
-|金额交易|order_value|按指定的金额执行股票的买入或卖出操作|
+|数量交易|order_amount|按指定数量买卖；默认返回 `OrderRef`，支持 dry-run/legacy|
+|金额交易|order_value|按指定金额买卖；默认返回 `OrderRef`，自动按整手计算|
 |新股申购|subscribe_new_stock|自动申购新股，自动查询额度并提交订单|
 |新债申购|subscribe_new_bond|自动申购新债，自动查询额度并提交订单|
 |国债回购|participate_reverse_repo|自动化操作国债逆回购，提高资金利用率|
@@ -76,19 +157,19 @@ PTrade是一款面向高净值个人客户及专业机构的一体化智能投�
 
 **2.系统控制模块**
 
-**函数名称**：jingni_main(trade_mode, context_data)
+**函数名称**：jingni_main(trade_mode, context_data, config=None, strategy=None)
 
-**学习目标**：理解如何构建系统的主控制循环，实现系统的自动启动、运行和终止。
+**学习目标**：理解如何构建系统初始化入口，把控制权交给平台事件循环。
 
-**核心内容**：详解如何通过时间判断，在交易日自动按顺序调度和执行盘前、盘中、盘后功能模块，并管理整个系统的生命周期。
+**核心内容**：`jingni_main` 只解析运行上下文、打印平台/版本并返回，不再按墙钟时间循环调度。掘金用 `on_bar`、QMT 用 `handlebar`、PTrade 用 `handle_data` 调用 `jingni_handle_data`。策略函数签名为 `strategy(trade_mode, context_data)`，推荐在 `jingni_main(..., strategy=my_strategy)` 中绑定；也可以先 `jingni_set_strategy(my_strategy)` 再正常初始化。
 
 **3.事件驱动框架**
 
-**函数名称**：jingni_before_trading_start(trade_mode, context_data)/jingni_handle_data(trade_mode, context_data)/jingni_after_trading_end(trade_mode, context_data)
+**函数名称**：jingni_before_trading_start(trade_mode, context_data)/jingni_handle_data(trade_mode, context_data, ..., strategy=None)/jingni_after_trading_end(trade_mode, context_data)
 
 **学习目标**：理解量化交易系统的事件驱动运行框架，理解不同事件功能模块的执行时机和职责。
 
-**核心内容**：详解如何在每日盘前执行数据预加载、参数初始化等一次性任务。详解如何在交易日内以指定频率（如每3秒）循环执行核心策略逻辑，包括交易信号、风险检查和订单提交。详解如何在每日盘后执行数据持久化、绩效分析、日志清理等收尾工作。
+**核心内容**：盘前函数用于数据预加载、参数初始化；`handle_data` 每次执行一次策略逻辑，不在内部 `while`/`sleep`，是否在交易时段由平台事件决定；盘后函数用于持久化、绩效分析和清理。
 
 **4.查询交易日期**
 
@@ -156,40 +237,40 @@ PTrade是一款面向高净值个人客户及专业机构的一体化智能投�
 
 **12.按照数量买卖**
 
-**函数名称**：jingni_order_amount(trade_mode, context_data, security_code, amount, price, direction)
+**函数名称**：jingni_order_amount(trade_mode, context_data, security_code, amount, price, dry_run=None, order_type='limit', remark=None, legacy=False, unit='share')
 
 **学习目标**：掌握根据指定证券数量提交买卖委托的基本方法。
 
-**核心内容**：详解如何向券商交易服务器发送市价单或限价单交易指令，完成指定数量和价格的证券买卖委托，并处理委托后的状态反馈。
+**核心内容**：正数买入、负数卖出；默认返回统一 `OrderRef`（含 `platform/order id/status`），旧代码可传 `legacy=True` 取平台 raw；默认先过风控，`dry_run=True` 只打印不报单。
 
 **13.按照金额买卖**
 
-**函数名称**：jingni_order_value(trade_mode, context_data, security_code, value, price, direction)
+**函数名称**：jingni_order_value(trade_mode, context_data, security_code, value, price, dry_run=None, order_type='limit', remark=None, legacy=False, unit='share')
 
 **学习目标**：掌握根据指定证券金额提交买卖委托的基本方法。
 
-**核心内容**：详解如何根据输入目标金额、当前证券标的价格和账户可用资金，自动计算实际可交易的整手数量，并执行交易，实现基于证券金额的仓位管理。
+**核心内容**：买入按 `min(目标金额, 可用资金)` 计算 100 股整手；卖出按统一持仓 `available` 计算；默认先过风控并返回 `OrderRef`。
 
 **14.自动申购新股**
 
-**函数名称**：jingni_subscribe_new_stock(trade_mode, context_data)
+**函数名称**：jingni_subscribe_new_stock(context_data, blacklist=None, dry_run=None, trade_mode=None)
 
 **学习目标**：掌握使用自动申购新股的功能。
 
-**核心内容**：详解自动获取当日新股发行信息，并按规则自动申购。
+**核心内容**：自动获取当日新股发行信息，按额度申购；`dry_run=True` 只列出标的，不报单。
 
 **15.自动申购新债**
 
-**函数名称**：jingni_subscribe_new_bond(trade_mode, context_data)
+**函数名称**：jingni_subscribe_new_bond(context_data, blacklist=None, dry_run=None, trade_mode=None)
 
 **学习目标**：掌握使用自动申购新债（可转债）的功能。
 
-**核心内容**：详解自动获取当日新债发行信息，并按规则自动申购。
+**核心内容**：自动获取当日新债发行信息，按额度申购；`dry_run=True` 只列出标的，不报单。
 
 **16.自动国债逆回购**
 
-**函数名称**：jingni_participate_reverse_repo(trade_mode, context_data, cash_ratio, reverse_repo_days)
+**函数名称**：jingni_participate_reverse_repo(context_data, cash_ratio=1.0, reverse_repo_days=1, market='SH', min_amount=1000, dry_run=None, trade_mode=None)
 
 **学习目标**：掌握盘中将闲置现金投资于国债逆回购，提升资金利用率。
 
-**核心内容**：详解如何根据账户可用资金和设定的比例，自动计算可参与国债逆回购的金额，并提交相应天数的国债逆回购卖出委托。
+**核心内容**：按 `int(cash*ratio/1000)*10` 计算张数；不足 1000 元或不足 10 张不报单；默认 dry-run。
