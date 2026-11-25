@@ -34,7 +34,7 @@
 | D2 | 首批范围 | **股票现货 + 打新/逆回购**：原 P3 高级能力默认不做；P2 中与交易无直接关系的能力（板块/指数、财务、分红、通知等）一并延后 |
 | D3 | QMT 兼容底线 | **Python 3.6 + GBK 硬约束**：CI 必须通过 3.6 编译与 GBK 解码；不使用 3.7+ 语法 |
 | D4 | 旧接口策略 | **保留旧名 + 可选参数 + `legacy` 返回形态**：现有 `jingni_*` 签名与参数顺序不破坏；`legacy` 只保留旧返回形态，不保留已知错误行为 |
-| D5 | PTrade 目标版本 | **以 `http://59.53.49.216:7766/hub/help/api` 官方文档为准**；其他券商版本差异后置为单独兼容项 |
+| D5 | PTrade 目标版本 | **以 `<INTERNAL_HOST>` 官方文档为准**；其他券商版本差异后置为单独兼容项 |
 | D6 | 第三方依赖 | **零新增**：仅使用平台自带的 pandas/numpy，不引入 requests 等外部包 |
 | D7 | 实盘安全默认 | **首次 `dry_run` + 限额默认开启**：单笔/单日限额、重复窗口、`kill_switch` 默认生效 |
 
@@ -57,7 +57,7 @@
 |---|---|---|
 | 掘金量化 | `https://www.myquant.cn/docs2/sdk/python/快速开始.html`；行情数据查询函数、交易函数、通用数据函数 | 事件模型、`history_n` 正整数约束、代码格式 `SHSE.600000`、平仓规则、交易日函数返回顺序 |
 | QMT / 迅投 | `https://dict.thinktrader.net/innerApi/start_now.html?id=yzWK3j`；系统函数、行情函数、交易函数、常见问题 | Python 3.6、GBK、`subscribe=False`、`schedule_run` 重复次数、单线程阻塞、`passorder`/`quickTrade` |
-| PTrade | `http://59.53.49.216:7766/hub/help/api` | `get_history` count>0、单/多标的返回差异、`run_daily` 回测时点、逆回购 10 张门槛、打新 5 秒间隔 |
+| PTrade | `<INTERNAL_HOST>` | `get_history` count>0、单/多标的返回差异、`run_daily` 回测时点、逆回购 10 张门槛、打新 5 秒间隔 |
 
 ### 1.3 严重度定义
 
@@ -852,7 +852,7 @@ JingniError
 | **D2** | 首批范围 | **A. 股票现货 + 打新/逆回购**；原 P3 高级能力默认不做，非交易类 P2 延后 | 首批 50 个核心函数、13 个延后项；核心工期 19—25 人日 |
 | **D3** | QMT 兼容底线 | **A. Python 3.6 + GBK 硬约束** | CI 增加 3.6 编译与 GBK 解码；禁止 3.7+ 语法与 GBK 不可编码字符 |
 | **D4** | 旧接口策略 | **A. 保留旧名 + 可选参数 + `legacy` 返回形态** | 现有策略不改代码可运行；`legacy` 不保留已知错误，新能力走新函数或可选参数 |
-| **D5** | PTrade 目标版本 | **以 `http://59.53.49.216:7766/hub/help/api` 官方文档为准**；其他券商版本差异后置 | `?` 项按该文档转正/降级；券商差异进 Backlog，不阻塞首批 |
+| **D5** | PTrade 目标版本 | **以 `<INTERNAL_HOST>` 官方文档为准**；其他券商版本差异后置 | `?` 项按该文档转正/降级；券商差异进 Backlog，不阻塞首批 |
 | **D6** | 第三方依赖 | **A. 零新增（仅 pandas/numpy）** | QMT 离线环境可直接运行；不引入 requests 等外部包 |
 | **D7** | 实盘安全默认 | **A. 首次 `dry_run` + 限额默认开启** | 单笔/单日限额、重复窗口、`kill_switch` 默认生效；首次实盘需显式关闭 `dry_run` |
 
@@ -880,7 +880,7 @@ JingniError
 | QMT 行情函数 | `https://dict.thinktrader.net/innerApi/data_function.html?id=yzWK3j` | `get_market_data_ex`、`get_trading_dates`、字段/周期 |
 | QMT 交易函数 | `https://dict.thinktrader.net/innerApi/trading_function.html` | `passorder` 参数、opType、prType、quickTrade |
 | QMT 常见问题 | `https://dict.thinktrader.net/innerApi/question_answer.html` | 单线程阻塞、异步回报、`get_trade_detail_data` 缓存 |
-| PTrade API | `http://59.53.49.216:7766/hub/help/api` | `get_history`、`order`、`run_daily`、`ipo_stocks_order`、逆回购门槛 |
+| PTrade API | `<INTERNAL_HOST>` | `get_history`、`order`、`run_daily`、`ipo_stocks_order`、逆回购门槛 |
 
 ## 附录 B 三个容易被误判的点（评估中修正的常见判断）
 

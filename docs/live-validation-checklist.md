@@ -346,7 +346,7 @@ PTrade 如果报 `[120162][超过涨跌停范围]`，先看 `[VALIDATION][PRICE]
 - 回调会额外传 `context`：`def _smoke_scheduled(*args, **kwargs)` 这类签名才安全。
 - 报单/撤单：核对 `order_market` 的 `limit_price`、`cancel_order` 的订单号、
   `get_orders/get_trades` 的返回结构；`get_snapshot` 字段以终端为准。
-- 官方 API：http://59.53.49.216:7766/hub/help/api
+- 官方 API：<INTERNAL_HOST>
 
 ## 5. 结果记录模板
 
