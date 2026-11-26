@@ -25,7 +25,9 @@
 VALIDATION_STAGE = "order_cancel"
 ```
 
-复制后直接运行，不需要再改代码。注意：它们会真的在仿真账户里报一笔 100 股限价单，然后撤单。
+复制后直接运行，不需要再改代码。注意：掘金/PTrade 会在仿真账户里真报一笔
+100 股限价单然后撤单；QMT 版默认 `VALIDATION_QMT_ORDER_CANCEL_ENABLED=False`，
+不会报单（原因见下方 QMT 段），只有确认柜台会保留未成交限价单时才改为 `True`。
 
 这份文件的日志前缀是 `[VALIDATION]`，不是 `[SMOKE]`。
 
@@ -131,11 +133,20 @@ evidence/<platform>/<yyyy-mm-dd>/
 - 本版把 QMT 撤单延迟改为 **0 秒**，并在委托列表尚未回写时用
   `get_last_order_id` + `get_value_by_order_id` 核对 remark，抢在仿真撮合
   成交前拿到真实委托号；不会误撤账户里的旧单。
+- **重要：QMT“国盛证券模拟”柜台实测按委托价直接撮合。** 2026-11-26 的
+  `600000.SH` 100 股限价买单，在 `last=10.41`、限价 `9.01` 时仍回报
+  `FILLED @ 9.01`，持仓从 500 股变为 600 股；14:59 再次运行后变为 700 股。
+  因此 `VALIDATION_QMT_ORDER_CANCEL_ENABLED` 默认是 `False`，`order_cancel`
+  只打印 `[SKIP]`，不写单。只有真实账户或确认使用交易所撮合的仿真账户，
+  才把它改成 `True`；不要在这个模拟柜台上反复运行。
+- QMT 的 `positions` 条数不等于持仓数量；验证现在会对比前后 `{code: amount}`
+  和成交条数，持仓或成交发生变化会直接判 FAIL，不再只看 `2 items`。
 - `passorder` 现在使用非空策略名 `JingniFlow`、`quickTrade=2`；官方文档要求
   传 `userOrderId` 时 `strategyName` 和 `quickTrade` 也必须有效，空策略名
   可能只产生信号而不产生委托。
-- 100 股限价单会压在“跌停价 + 0.01”，避免像 `last * 0.98` 那样在仿真柜台
-  被当成可成交价；如果 20 秒内委托仍未出现，会明确判 FAIL 并提示运行模式问题。
+- 100 股限价单会压在“跌停价 + 0.01”，在真实柜台应不可成交；但 QMT 模拟
+  柜台不保证，默认不写单。如果 20 秒内委托仍未出现，会明确判 FAIL 并提示
+  运行模式问题。
 - 如果 QMT 本机历史数据不足（例如 `history range 2024` 只有 19 行），先在
   QMT 客户端“数据管理/补充行情”下载 `600000.SH` 的日线，再跑验证。
 

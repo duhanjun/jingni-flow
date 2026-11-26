@@ -79,12 +79,14 @@ def order_cancel_text(text):
     doc_old = (
         'STEP 1: keep VALIDATION_STAGE = "dry_run" and run once. It places no order.\n'
         'STEP 2: after confirming this is a simulation account, change it to\n'
-        '        "order_cancel".'
+        '        "order_cancel". The strategy places one 100-share limit buy below\n'
+        '        the market, waits, cancels it, and reconciles orders/positions.\n'
     )
     doc_new = (
         'This file is preset to VALIDATION_STAGE = "order_cancel": it places one\n'
         '100-share limit buy below the market, waits, cancels it, and reconciles\n'
-        'orders/positions.'
+        'orders/positions. QMT defaults to no write until explicitly enabled;\n'
+        'see VALIDATION_QMT_ORDER_CANCEL_ENABLED in the strategy body.\n'
     )
     return text.replace(doc_old, doc_new, 1)
 

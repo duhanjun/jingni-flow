@@ -16,6 +16,8 @@ _ORDER_REF = None
 _ORDER_TIME = 0.0
 _ORDER_PRICE = 0.0
 _ORDERS_BEFORE_COUNT = 0
+_POSITIONS_BEFORE = None
+_TRADES_BEFORE_COUNT = -1
 _CANCEL_SENT = False
 _CANCEL_TIME = 0.0
 _PASS = 0
@@ -112,6 +114,44 @@ def _validation_order_count(value):
         return 0
 
 
+def _validation_position_totals(value):
+    """把持仓列表压成 {code: amount}，用于验证前后数量对比。
+
+    只统计数量，不依赖持仓条数；QMT 的 positions 条数不变但某只股票
+    数量增加时，单看 len(positions) 会漏掉真实成交。
+    """
+    totals = {}
+    for item in value or []:
+        if not isinstance(item, dict):
+            continue
+        code = item.get("code")
+        if code is None:
+            continue
+        try:
+            amount = int(float(item.get("amount") or 0))
+        except Exception:
+            amount = 0
+        key = str(code)
+        totals[key] = totals.get(key, 0) + amount
+    return totals
+
+
+def _validation_position_delta(before, after):
+    delta = {}
+    for code in sorted(set(before.keys()) | set(after.keys())):
+        change = after.get(code, 0) - before.get(code, 0)
+        if change:
+            delta[code] = change
+    return delta
+
+
+def _validation_trade_count(value):
+    try:
+        return len(value)
+    except Exception:
+        return -1
+
+
 def _validation_ref_id(ref):
     if ref is None:
         return None
@@ -194,12 +234,40 @@ def _validation_merge_actual_ref(order):
 
 
 def _validation_reconcile(context):
-    _validation_check(
+    global _FAIL, _PASS
+    positions_after = _validation_check(
         "positions after", lambda: jingni_get_positions(trade_mode, context)
     )
-    _validation_check(
+    trades_after = _validation_check(
         "trades after", lambda: jingni_get_trades(trade_mode, context)
     )
+    if _POSITIONS_BEFORE is not None and isinstance(
+        positions_after, (list, tuple)
+    ):
+        positions_now = _validation_position_totals(positions_after)
+        delta = _validation_position_delta(_POSITIONS_BEFORE, positions_now)
+        if delta:
+            _FAIL += 1
+            print(
+                "[VALIDATION][FAIL] positions changed during order_cancel: "
+                "delta={0}".format(delta)
+            )
+        else:
+            _PASS += 1
+            print("[VALIDATION][OK] positions unchanged")
+    if _TRADES_BEFORE_COUNT >= 0 and trades_after is not None:
+        trades_now = _validation_trade_count(trades_after)
+        if trades_now != _TRADES_BEFORE_COUNT:
+            _FAIL += 1
+            print(
+                "[VALIDATION][FAIL] trades changed during order_cancel: "
+                "before={0} after={1}".format(
+                    _TRADES_BEFORE_COUNT, trades_now
+                )
+            )
+        else:
+            _PASS += 1
+            print("[VALIDATION][OK] trades unchanged")
 
 
 def _validation_summary(stage):
@@ -212,11 +280,17 @@ def _validation_summary(stage):
         )
     )
     if _FAIL == 0:
-        print(
-            "[VALIDATION][RESULT] {0}: ALL CHECKS PASSED; VALIDATION SUCCESS".format(
-                stage
+        if _SKIP == 0:
+            print(
+                "[VALIDATION][RESULT] {0}: ALL CHECKS PASSED; VALIDATION SUCCESS".format(
+                    stage
+                )
             )
-        )
+        else:
+            print(
+                "[VALIDATION][RESULT] {0}: INCOMPLETE; skipped={1}; "
+                "do not treat this as a GO".format(stage, _SKIP)
+            )
     else:
         print(
             "[VALIDATION][RESULT] {0}: VALIDATION FAILED; failed={1}".format(
@@ -442,6 +516,17 @@ def _validation_reference_price(context, instrument, history):
 def _validation_place_order(context, instrument, history):
     global _ORDER_REF, _ORDER_TIME, _ORDER_PRICE, _FAIL
     global _CANCEL_SENT, _CANCEL_TIME, _PASS
+    if trade_mode == "qmt" and not bool(
+        globals().get("VALIDATION_QMT_ORDER_CANCEL_ENABLED", False)
+    ):
+        _validation_skip(
+            "QMT order_cancel write",
+            "QMT simulation counter filled a 9.01 limit buy at 9.01 while "
+            "last=10.41; set VALIDATION_QMT_ORDER_CANCEL_ENABLED=True only "
+            "on a real/exchange-matching account",
+        )
+        _validation_summary("order_cancel")
+        return
     last = _validation_reference_price(context, instrument, history)
     if last <= 0:
         _FAIL += 1
@@ -717,6 +802,7 @@ def _validation_drive_order(context):
 
 def _validation_bootstrap(context):
     global _WAITING_PRINTED, _FAIL, _ORDERS_BEFORE_COUNT
+    global _POSITIONS_BEFORE, _TRADES_BEFORE_COUNT
     _WAITING_PRINTED = False
     print("=" * 64)
     print(
@@ -742,10 +828,24 @@ def _validation_bootstrap(context):
         "account strict",
         lambda: jingni_get_account(trade_mode, context, strict=True),
     )
-    _validation_check(
+    positions_before = _validation_check(
         "positions",
         lambda: jingni_get_positions(trade_mode, context, strict=True),
     )
+    if isinstance(positions_before, (list, tuple)):
+        _POSITIONS_BEFORE = _validation_position_totals(positions_before)
+    try:
+        trades_before = jingni_get_trades(trade_mode, context)
+    except Exception as exc:
+        _TRADES_BEFORE_COUNT = -1
+        print(
+            "[VALIDATION][WARN] trades before unavailable: {0}: {1}".format(
+                type(exc).__name__, exc
+            )
+        )
+    else:
+        _TRADES_BEFORE_COUNT = _validation_trade_count(trades_before)
+        print("[VALIDATION][OK] trades before: {0}".format(trades_before))
     try:
         before_orders = jingni_get_orders(trade_mode, context, include_finished=True)
     except Exception as exc:
